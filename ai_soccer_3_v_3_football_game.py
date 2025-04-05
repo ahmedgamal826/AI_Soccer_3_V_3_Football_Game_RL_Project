@@ -400,13 +400,13 @@ def load_or_train_model():
     model_path = "soccer_3v3_pass_and_goal_ai"
     try:
         model = PPO.load(model_path, env=env)
-        print("تم تحميل الموديل المدرب بنجاح!")
+        print("The trained model was loaded successfully!")
     except FileNotFoundError:
-        print("لم يتم العثور على الموديل، جاري التدريب...")
+        print("Model not found, training in progress...")
         model = PPO("MlpPolicy", env, verbose=1, learning_rate=0.0003, n_steps=4096, batch_size=512, n_epochs=20)
         model.learn(total_timesteps=300_000)
         model.save(model_path)
-        print("تم تدريب الموديل وحفظه بنجاح!")
+        print("The model was trained and saved successfully!")
     return model
 
 async def main():
