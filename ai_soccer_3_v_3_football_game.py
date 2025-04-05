@@ -5,6 +5,7 @@ import numpy as np
 from gym import Env, spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
+import time  
 
 # Initialize Pygame and mixer
 pygame.init()
@@ -15,8 +16,6 @@ WIDTH, HEIGHT = 800, 600
 FPS = 30
 PLAYER_SIZE = 40
 BALL_SIZE = 30
-# TEAM_COLORS = [(255, 0, 0), (0, 0, 255)]  # Red, Blue
-# GOALKEEPER_COLOR = (255, 255, 0)  # Yellow for goalkeepers
 TEAM_COLORS = [(255, 0, 0), (0, 0, 255)]  # Red, Blue
 GOALKEEPER_COLORS = [(0, 255, 0), (255, 165, 0)]  # Green for Red_Goalkeeper, Orange for Blue_Goalkeeper
 GOAL_AREA_WIDTH = 100
@@ -34,8 +33,7 @@ class AdvancedSoccerEnv(Env):
         super(AdvancedSoccerEnv, self).__init__()
 
         self.action_space = spaces.MultiDiscrete([5, 5, 5, 5, 5, 5])
-        # self.observation_space = spaces.Box(low=-1, high=1, shape=(36,), dtype=np.float32)  # 4 (ball) + 6 × 6 (players)
-        self.observation_space = spaces.Box(low=-1, high=1, shape=(40,), dtype=np.float32)  # 4 (ball) + 6 × 6 (players)
+        self.observation_space = spaces.Box(low=-1, high=1, shape=(40,), dtype=np.float32)
         self.ball_image = pygame.image.load("football.png")
         self.ball_image = pygame.transform.scale(self.ball_image, (BALL_SIZE, BALL_SIZE))
 
@@ -103,7 +101,7 @@ class AdvancedSoccerEnv(Env):
             self.ball.y / HEIGHT - 0.5,
             self.velocities['ball'][0] / self.kick_power,
             self.velocities['ball'][1] / self.kick_power
-        ]  # 4 قيم
+        ]
         player_obs = []
         for team in ['Elnemr', 'Beherry', 'Red_GK', 'Abanoub', 'ElShokary', 'Blue_GK']:
             max_speed = self.goalkeeper_max_speed if 'GK' in team else self.red_max_speed if 'Elnemr' in team or 'Beherry' in team else self.blue_max_speed
@@ -112,11 +110,11 @@ class AdvancedSoccerEnv(Env):
                 (self.players[team].y - self.ball.y) / HEIGHT,    
                 self.velocities[team][0] / max_speed, 
                 self.velocities[team][1] / max_speed,  
-                (WIDTH - self.players[team].x if 'Elnemr' in team or 'Beherry' in team or 'Red_GK' in team else self.players[team].x) / WIDTH,  # مسافة للمرمى
+                (WIDTH - self.players[team].x if 'Elnemr' in team or 'Beherry' in team or 'Red_GK' in team else self.players[team].x) / WIDTH,
                 (HEIGHT//2 - self.players[team].y) / HEIGHT  
-            ])  
+            ])
         obs = np.array(ball_pos + player_obs, dtype=np.float32)
-        assert len(obs) == 40, f"Observation length mismatch: expected 40, got {len(obs)}"  # غيرت 36 لـ 40
+        assert len(obs) == 40, f"Observation length mismatch: expected 40, got {len(obs)}"
         return obs
 
     def step(self, actions):
@@ -139,8 +137,30 @@ class AdvancedSoccerEnv(Env):
 
         self.current_time += (1.0 / FPS) * self.time_scale
         reward = self._calculate_rewards()
-        done = self._check_goal() or not self.running or self.current_time >= self.total_time
+        
+        if self._check_goal():
+            self._reset_after_goal()
+            time.sleep(1)  # تأخير لمدة ثانية بعد الهدف للتأكد من استمرار اللعب
+
+        done = not self.running or self.current_time >= self.total_time
         return self._get_obs(), reward, done, {}
+
+    def _reset_after_goal(self):
+        self.ball = pygame.Rect(WIDTH//2, HEIGHT//2, BALL_SIZE, BALL_SIZE)
+        self.velocities['ball'] = [0, 0]
+        self.players = {
+            'Elnemr': pygame.Rect(WIDTH//2 - 200, HEIGHT//2 - 150, PLAYER_SIZE, PLAYER_SIZE),
+            'Beherry': pygame.Rect(WIDTH//2 - 200, HEIGHT//2 + 150, PLAYER_SIZE, PLAYER_SIZE),
+            'Red_GK': pygame.Rect(WIDTH - GOAL_AREA_WIDTH, HEIGHT//2 - PLAYER_SIZE//2, PLAYER_SIZE, PLAYER_SIZE),
+            'Abanoub': pygame.Rect(WIDTH//2 + 200, HEIGHT//2 - 150, PLAYER_SIZE, PLAYER_SIZE),
+            'ElShokary': pygame.Rect(WIDTH//2 + 200, HEIGHT//2 + 150, PLAYER_SIZE, PLAYER_SIZE),
+            'Blue_GK': pygame.Rect(GOAL_AREA_WIDTH - PLAYER_SIZE, HEIGHT//2 - PLAYER_SIZE//2, PLAYER_SIZE, PLAYER_SIZE)
+        }
+        self.velocities.update({
+            'Elnemr': [0, 0], 'Beherry': [0, 0], 'Red_GK': [0, 0],
+            'Abanoub': [0, 0], 'ElShokary': [0, 0], 'Blue_GK': [0, 0]
+        })
+        self.last_kicker = None
 
     def _apply_action(self, action, team):
         distance_to_ball = np.hypot(self.ball.x - self.players[team].x, self.ball.y - self.players[team].y)
@@ -297,14 +317,10 @@ class AdvancedSoccerEnv(Env):
     def _draw_player(self, x, y, team):
         if 'GK' in team:
             color = GOALKEEPER_COLORS[0] if 'Red' in team else GOALKEEPER_COLORS[1]
-            # Head
             pygame.draw.circle(self.screen, color, (x, y - 20), 10)
-            # Body
             pygame.draw.rect(self.screen, color, (x - 7.5, y - 10, 15, 25))
-            # Legs
             pygame.draw.line(self.screen, color, (x - 5, y + 15), (x - 5, y + 30), 3)
             pygame.draw.line(self.screen, color, (x + 5, y + 15), (x + 5, y + 30), 3)
-            # Arms
             pygame.draw.line(self.screen, color, (x - 7.5, y - 5), (x - 15, y + 5), 3)
             pygame.draw.line(self.screen, color, (x + 7.5, y - 5), (x + 15, y + 5), 3)
         else:
@@ -351,21 +367,7 @@ class AdvancedSoccerEnv(Env):
             self.halftime_shown = True
             self.dialog_timer = pygame.time.get_ticks()
             self.dialog_text = self.dialog_font.render(f"Half Time: Red {self.scores['red']} - {self.scores['blue']} Blue", True, (255, 255, 255))
-            self.players = {
-                'Elnemr': pygame.Rect(WIDTH//2 - 200, HEIGHT//2 - 150, PLAYER_SIZE, PLAYER_SIZE),
-                'Beherry': pygame.Rect(WIDTH//2 - 200, HEIGHT//2 + 150, PLAYER_SIZE, PLAYER_SIZE),
-                'Red_GK': pygame.Rect(WIDTH - GOAL_AREA_WIDTH, HEIGHT//2 - PLAYER_SIZE//2, PLAYER_SIZE, PLAYER_SIZE),
-                'Abanoub': pygame.Rect(WIDTH//2 + 200, HEIGHT//2 - 150, PLAYER_SIZE, PLAYER_SIZE),
-                'ElShokary': pygame.Rect(WIDTH//2 + 200, HEIGHT//2 + 150, PLAYER_SIZE, PLAYER_SIZE),
-                'Blue_GK': pygame.Rect(GOAL_AREA_WIDTH - PLAYER_SIZE, HEIGHT//2 - PLAYER_SIZE//2, PLAYER_SIZE, PLAYER_SIZE)
-            }
-            self.ball = pygame.Rect(WIDTH//2, HEIGHT//2, BALL_SIZE, BALL_SIZE)
-            self.velocities = {
-                'Elnemr': [0, 0], 'Beherry': [0, 0], 'Red_GK': [0, 0],
-                'Abanoub': [0, 0], 'ElShokary': [0, 0], 'Blue_GK': [0, 0], 'ball': [0, 0]
-            }
-            self.last_kicker = None
-            self.last_ball_pos = (self.ball.x, self.ball.y)
+            self._reset_after_goal()
 
         if self.current_time >= 5400 and not self.fulltime_shown:
             if WHISTLE_SOUND:
@@ -409,9 +411,59 @@ def load_or_train_model():
         print("The model was trained and saved successfully!")
     return model
 
+def evaluate_match(model, env, num_matches=1, max_reward_per_match=25000):
+    for match in range(num_matches):
+        obs = env.reset()
+        done = False
+        total_reward = 0
+        goal_details = []
+        team_rewards = {'red': 0, 'blue': 0}
+        
+        print(f"\nStarting Match {match + 1}")
+        
+        while not done and env.running:
+            action, _ = model.predict(obs)
+            obs, reward, done, _ = env.step(action)
+            total_reward += reward
+            
+            if env._check_goal():
+                scoring_team = 'red' if env.ball.x > WIDTH / 2 else 'blue'
+                player = env.last_kicker if env.last_kicker else "Unknown"
+                goal_details.append((reward, scoring_team, player))
+                team_rewards[scoring_team] += reward
+                
+                accuracy = (total_reward / max_reward_per_match) * 100
+                accuracy = min(100.0, max(0.0, accuracy))
+                
+                # Print details immediately after a goal
+                print(f"\nGoal by {scoring_team.capitalize()} Team (Player: {player})!")
+                print(f"Reward for Goal: {reward:.2f}")
+                print(f"Current Score - Red: {env.scores['red']} - Blue: {env.scores['blue']}")
+                print(f"Total Reward so far: {total_reward:.2f}")
+                print(f"Model Accuracy so far: {accuracy:.2f}%")
+            
+            env.render()
+        
+        # Calculate final accuracy
+        accuracy = (total_reward / max_reward_per_match) * 100
+        accuracy = min(100.0, max(0.0, accuracy))
+        
+        # Print final match summary
+        print(f"\nMatch {match + 1} Final Results:")
+        print(f"Final Score - Red: {env.scores['red']} - Blue: {env.scores['blue']}")
+        print(f"Total Reward for Match: {total_reward:.2f}")
+        if goal_details:
+            for i, (goal_reward, team, player) in enumerate(goal_details, 1):
+                print(f"  Goal {i} by {team.capitalize()} Team (Player: {player}) - Reward: {goal_reward:.2f}")
+        else:
+            print("The Match Is Finised")
+        print(f"Model Accuracy for Match: {accuracy:.2f}%")
+
 async def main():
     model = load_or_train_model()
     env = AdvancedSoccerEnv()
+    evaluate_match(model, env, num_matches=1, max_reward_per_match=25000)
+
     while env.running:
         obs = env.reset()
         done = False
