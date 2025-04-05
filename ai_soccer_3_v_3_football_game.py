@@ -72,10 +72,10 @@ class AdvancedSoccerEnv(Env):
         self.players = {
             'Elnemr': pygame.Rect(WIDTH//2 - 200, HEIGHT//2 - 150, PLAYER_SIZE, PLAYER_SIZE),
             'Beherry': pygame.Rect(WIDTH//2 - 200, HEIGHT//2 + 150, PLAYER_SIZE, PLAYER_SIZE),
-            'Red_GK': pygame.Rect(WIDTH - GOAL_AREA_WIDTH, HEIGHT//2 - PLAYER_SIZE//2, PLAYER_SIZE, PLAYER_SIZE),
+            'Red_GK': pygame.Rect(WIDTH - GOAL_AREA_WIDTH + PLAYER_SIZE, HEIGHT//2 - PLAYER_SIZE//2, PLAYER_SIZE, PLAYER_SIZE),
             'Abanoub': pygame.Rect(WIDTH//2 + 200, HEIGHT//2 - 150, PLAYER_SIZE, PLAYER_SIZE),
             'ElShokary': pygame.Rect(WIDTH//2 + 200, HEIGHT//2 + 150, PLAYER_SIZE, PLAYER_SIZE),
-            'Blue_GK': pygame.Rect(GOAL_AREA_WIDTH - PLAYER_SIZE, HEIGHT//2 - PLAYER_SIZE//2, PLAYER_SIZE, PLAYER_SIZE)
+            'Blue_GK': pygame.Rect(GOAL_AREA_WIDTH - PLAYER_SIZE, HEIGHT//2 - PLAYER_SIZE//2, PLAYER_SIZE, PLAYER_SIZE)  # Moved forward from x=0
         }
         self.ball = pygame.Rect(WIDTH//2, HEIGHT//2, BALL_SIZE, BALL_SIZE)
         self.velocities = {
@@ -174,15 +174,30 @@ class AdvancedSoccerEnv(Env):
         distance_ball = np.hypot(dx_ball, dy_ball)
 
         if is_goalkeeper:
-            goal_x = WIDTH if team == 'Red_GK' else 0
-            if not (goal_x - GOAL_AREA_WIDTH <= self.players[team].x <= goal_x and HEIGHT//2 - GOAL_AREA_HEIGHT//2 <= self.players[team].y <= HEIGHT//2 + GOAL_AREA_HEIGHT//2):
-                return
-            if distance_ball < PLAYER_SIZE + BALL_SIZE and action == 4:
-                self._smart_kick(team)
-            elif distance_ball > PLAYER_SIZE + BALL_SIZE:
-                self.velocities[team][0] += speed_modifier * np.sign(dx_ball)
-                self.velocities[team][1] += speed_modifier * np.sign(dy_ball)
+            if team == 'Blue_GK':
+                # Position Blue_GK at a fixed distance in front of the goal
+                goal_x = 0
+                self.players[team].x = goal_x + GOAL_AREA_WIDTH - PLAYER_SIZE  # Fixed x-position in front of goal
+                # Restrict movement to within goal area vertically
+                if not (HEIGHT//2 - GOAL_AREA_HEIGHT//2 <= self.players[team].y <= HEIGHT//2 + GOAL_AREA_HEIGHT//2):
+                    return
+                if distance_ball < PLAYER_SIZE + BALL_SIZE and action == 4:
+                    self._smart_kick(team)
+                else:
+                    self.velocities[team][1] += speed_modifier * np.sign(dy_ball)  # Only y-velocity changes
+                    self.velocities[team][0] = 0  # Lock x-velocity to 0
+            elif team == 'Red_GK':
+                # Existing Red_GK logic remains unchanged
+                goal_x = WIDTH
+                if not (goal_x - GOAL_AREA_WIDTH <= self.players[team].x <= goal_x and HEIGHT//2 - GOAL_AREA_HEIGHT//2 <= self.players[team].y <= HEIGHT//2 + GOAL_AREA_HEIGHT//2):
+                    return
+                if distance_ball < PLAYER_SIZE + BALL_SIZE and action == 4:
+                    self._smart_kick(team)
+                elif distance_ball > PLAYER_SIZE + BALL_SIZE:
+                    self.velocities[team][0] += speed_modifier * np.sign(dx_ball)
+                    self.velocities[team][1] += speed_modifier * np.sign(dy_ball)
         else:
+            # Non-goalkeeper logic remains unchanged
             if distance_ball > PLAYER_SIZE + BALL_SIZE:
                 self.velocities[team][0] += speed_modifier * np.sign(dx_ball)
                 self.velocities[team][1] += speed_modifier * np.sign(dy_ball)
@@ -195,6 +210,7 @@ class AdvancedSoccerEnv(Env):
 
         self.velocities[team][0] = np.clip(self.velocities[team][0] * self.friction, -max_speed, max_speed)
         self.velocities[team][1] = np.clip(self.velocities[team][1] * self.friction, -max_speed, max_speed)
+
 
     def _apply_repulsion(self):
         for team1, team2 in [('Elnemr', 'Beherry'), ('Abanoub', 'ElShokary'), ('Red_GK', 'Blue_GK')]:
@@ -255,9 +271,14 @@ class AdvancedSoccerEnv(Env):
     def _enforce_boundaries(self, entity):
         if entity in self.players:
             if 'GK' in entity:
-                goal_x = WIDTH if 'Red' in entity else 0
-                self.players[entity].x = np.clip(self.players[entity].x, goal_x - GOAL_AREA_WIDTH, goal_x)
-                self.players[entity].y = np.clip(self.players[entity].y, HEIGHT//2 - GOAL_AREA_HEIGHT//2, HEIGHT//2 + GOAL_AREA_HEIGHT//2)
+                if 'Red' in entity:
+                    goal_x = WIDTH
+                    self.players[entity].x = np.clip(self.players[entity].x, goal_x - GOAL_AREA_WIDTH, goal_x)
+                    self.players[entity].y = np.clip(self.players[entity].y, HEIGHT//2 - GOAL_AREA_HEIGHT//2, HEIGHT//2 + GOAL_AREA_HEIGHT//2)
+                else:  # Blue_GK
+                    goal_x = 0
+                    self.players[entity].x = goal_x + GOAL_AREA_WIDTH - PLAYER_SIZE  # Lock x-position in front of goal
+                    self.players[entity].y = np.clip(self.players[entity].y, HEIGHT//2 - GOAL_AREA_HEIGHT//2, HEIGHT//2 + GOAL_AREA_HEIGHT//2)
             else:
                 self.players[entity].x = np.clip(self.players[entity].x, 0, WIDTH - PLAYER_SIZE)
                 self.players[entity].y = np.clip(self.players[entity].y, 0, HEIGHT - PLAYER_SIZE)
